@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETH Volatility Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',sans-serif; background:#0f1117; color:#e0e0e0; min-height:100vh; padding:24px 16px; }
+  .header { text-align:center; margin-bottom:28px; }
+  .header h1 { font-size:1.8rem; font-weight:700; color:#a78bfa; }
+  .header p  { color:#888; font-size:0.83rem; margin-top:4px; }
+  .card { background:#1a1d2e; border:1px solid #2a2d3e; border-radius:14px; padding:20px; margin-bottom:22px; }
+  .card h2 { font-size:0.95rem; color:#a78bfa; margin-bottom:16px; font-weight:600; }
+
+  .today-panel { display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+  .badge {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    width:130px; height:130px; border-radius:50%; font-weight:700; flex-shrink:0; border:4px solid transparent; transition:all .4s;
+  }
+  .badge .blabel { font-size:1rem; }
+  .badge .bcount { font-size:2.1rem; line-height:1; }
+  .badge .bsub   { font-size:0.62rem; opacity:.75; margin-top:3px; }
+  .badge.high    { background:#14532d33; border-color:#22c55e; color:#22c55e; }
+  .badge.medium  { background:#78350f33; border-color:#eab308; color:#eab308; }
+  .badge.low     { background:#7f1d1d33; border-color:#ef4444; color:#ef4444; }
+  .badge.idle    { background:#1e293b;   border-color:#475569; color:#94a3b8; }
+
+  .today-info .date-lbl  { font-size:1.15rem; font-weight:600; margin-bottom:8px; }
+  .today-info .meta      { font-size:.81rem; color:#888; line-height:1.9; }
+  .today-info .meta span { color:#ccc; }
+
+  .legend { display:flex; gap:18px; flex-wrap:wrap; margin-top:14px; }
+  .leg-item { display:flex; align-items:center; gap:6px; font-size:.77rem; color:#aaa; }
+  .leg-dot  { width:10px; height:10px; border-radius:50%; }
+  .leg-dot.high   { background:#22c55e; }
+  .leg-dot.medium { background:#eab308; }
+  .leg-dot.low    { background:#ef4444; }
+
+  .chart-container { position:relative; height:220px; }
+  .table-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:.81rem; }
+  th { color:#777; font-weight:500; padding:8px 10px; text-align:left; border-bottom:1px solid #2a2d3e; white-space:nowrap; }
+  td { padding:9px 10px; border-bottom:1px solid #1e2130; white-space:nowrap; }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:#1e2235; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.73rem; font-weight:600; }
+  .pill.high   { background:#14532d44; color:#22c55e; border:1px solid #22c55e66; }
+  .pill.medium { background:#78350f44; color:#eab308; border:1px solid #eab30866; }
+  .pill.low    { background:#7f1d1d44; color:#ef4444; border:1px solid #ef444466; }
+
+  .controls { text-align:center; margin-bottom:20px; }
+  .load-btn {
+    background:linear-gradient(135deg,#7c3aed,#a78bfa); border:none; color:#fff;
+    padding:10px 32px; border-radius:10px; cursor:pointer; font-size:.9rem; font-weight:600;
+    transition:opacity .2s; box-shadow:0 4px 14px #7c3aed44;
+  }
+  .load-btn:hover { opacity:.88; }
+  .load-btn:disabled { opacity:.4; cursor:not-allowed; }
+  .status-bar { font-size:.76rem; color:#555; min-height:16px; margin-top:8px; }
+  .status-bar.loading { color:#a78bfa; }
+  .status-bar.error   { color:#ef4444; }
+  .status-bar.ok      { color:#22c55e; }
+  .empty { text-align:center; color:#555; padding:20px; font-size:.82rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>⟠ ETH Volatility Tracker</h1>
+  <p>Cambios de dirección intradía reales · CoinGecko API · ETH/USD</p>
+</div>
+
+<div class="controls">
+  <button class="load-btn" id="loadBtn" onclick="loadAll()">⟠ Cargar datos de Ethereum</button>
+  <div class="status-bar" id="statusBar"></div>
+</div>
+
+<div class="card">
+  <h2>📅 Volatilidad de hoy</h2>
+  <div class="today-panel">
+    <div class="badge idle" id="todayBadge">
+      <span class="bcount">–</span><span class="bsub">reversals</span>
+    </div>
+    <div class="today-info">
+      <div class="date-lbl" id="todayDate">–</div>
+      <div class="meta" id="todayMeta">Pulsa el botón para cargar.</div>
+    </div>
+  </div>
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot high"></div> Alta (&gt;12 reversals)</div>
+    <div class="leg-item"><div class="leg-dot medium"></div> Media (7–12)</div>
+    <div class="leg-item"><div class="leg-dot low"></div> Baja (&lt;7)</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>📈 Evolución histórica (30 días)</h2>
+  <div class="chart-container"><canvas id="volChart"></canvas></div>
+</div>
+
+<div class="card">
+  <h2>📋 Registro diario</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Fecha</th><th>Reversals</th><th>Nivel</th><th>Apertura</th><th>Cierre</th><th>% Var.</th></tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr><td colspan="6" class="empty">Pulsa el botón para cargar datos.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let chartInst = null;
+
+function classify(r) {
+  if (r > 12) return { label:'ALTA',  cls:'high'   };
+  if (r >= 7)  return { label:'MEDIA', cls:'medium' };
+  return              { label:'BAJA',  cls:'low'    };
+}
+
+function countReversals(prices) {
+  if (prices.length < 3) return 0;
+  let n = 0;
+  for (let i = 1; i < prices.length - 1; i++) {
+    const p = prices[i-1], c = prices[i], nx = prices[i+1];
+    if ((c > p && c > nx) || (c < p && c < nx)) n++;
+  }
+  return n;
+}
+
+function fmtTs(ms) {
+  return new Date(ms).toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit', year:'numeric'});
+}
+function fmtPrice(p) {
+  return '$' + Number(p).toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function setStatus(msg, cls='') {
+  const el = document.getElementById('statusBar');
+  el.className = 'status-bar ' + cls;
+  el.textContent = msg;
+}
+
+async function loadAll() {
+  const btn = document.getElementById('loadBtn');
+  btn.disabled = true;
+  setStatus('Descargando datos de CoinGecko…', 'loading');
+
+  try {
+    // 1. Hourly prices for last 30 days — one single API call
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=usd&days=30&interval=hourly'
+    );
+    if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+    const json = await res.json();
+
+    // json.prices = [[timestamp_ms, price], ...]
+    const raw = json.prices;
+    if (!raw || !raw.length) throw new Error('Sin datos de CoinGecko.');
+
+    // 2. Group by UTC date
+    const byDay = {};
+    raw.forEach(([ms, price]) => {
+      const d   = new Date(ms);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+      if (!byDay[key]) byDay[key] = { ms, prices: [] };
+      byDay[key].prices.push(price);
+    });
+
+    // 3. Build days array
+    const days = Object.keys(byDay).sort().map(key => {
+      const { ms, prices } = byDay[key];
+      return {
+        key,
+        ms,
+        open:      prices[0],
+        close:     prices[prices.length - 1],
+        reversals: countReversals(prices)
+      };
+    });
+
+    setStatus('Renderizando…', 'loading');
+
+    // ── Today ─────────────────────────────────────────────────
+    const tod = days[days.length - 1];
+    const tc  = classify(tod.reversals);
+    const vp  = ((tod.close - tod.open) / tod.open * 100).toFixed(2);
+
+    const badge = document.getElementById('todayBadge');
+    badge.className = `badge ${tc.cls}`;
+    badge.innerHTML = `<span class="blabel">${tc.label}</span><span class="bcount">${tod.reversals}</span><span class="bsub">reversals</span>`;
+    document.getElementById('todayDate').textContent = fmtTs(tod.ms);
+    document.getElementById('todayMeta').innerHTML =
+      `Apertura: <span>${fmtPrice(tod.open)}</span><br>
+       Cierre: <span>${fmtPrice(tod.close)}</span><br>
+       Variación precio: <span style="color:${vp>=0?'#22c55e':'#ef4444'}">${vp>=0?'+':''}${vp}%</span><br>
+       Cambios de dirección: <span>${tod.reversals}</span>`;
+
+    // ── Chart ─────────────────────────────────────────────────
+    const labels = days.map(d => {
+      const dt = new Date(d.ms);
+      return `${String(dt.getUTCDate()).padStart(2,'0')}/${String(dt.getUTCMonth()+1).padStart(2,'0')}`;
+    });
+    const values = days.map(d => d.reversals);
+    const colors = values.map(v =>
+      classify(v).cls === 'high'   ? '#22c55e' :
+      classify(v).cls === 'medium' ? '#eab308' : '#ef4444'
+    );
+
+    if (chartInst) chartInst.destroy();
+    chartInst = new Chart(document.getElementById('volChart').getContext('2d'), {
+      type: 'bar',
+      data: { labels, datasets:[{ label:'Reversals', data:values, backgroundColor:colors, borderRadius:4, borderSkipped:false }] },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ` ${ctx.raw} reversals · ${classify(ctx.raw).label}` }} },
+        scales:{
+          x:{ ticks:{color:'#666', font:{size:10}}, grid:{color:'#1e2130'} },
+          y:{ ticks:{color:'#666'}, grid:{color:'#1e2130'}, title:{display:true, text:'Reversals', color:'#555', font:{size:11}} }
+        }
+      }
+    });
+
+    // ── Table ─────────────────────────────────────────────────
+    document.getElementById('tableBody').innerHTML = [...days].reverse().map(d => {
+      const c  = classify(d.reversals);
+      const vr = ((d.close - d.open) / d.open * 100).toFixed(2);
+      const vc = vr >= 0 ? '#22c55e' : '#ef4444';
+      return `<tr>
+        <td>${fmtTs(d.ms)}</td>
+        <td style="font-weight:600">${d.reversals}</td>
+        <td><span class="pill ${c.cls}">${c.label}</span></td>
+        <td>${fmtPrice(d.open)}</td>
+        <td>${fmtPrice(d.close)}</td>
+        <td style="color:${vc}">${vr>=0?'+':''}${vr}%</td>
+      </tr>`;
+    }).join('');
+
+    setStatus(`✓ Datos reales · ${new Date().toLocaleTimeString('es-ES')}`, 'ok');
+    btn.textContent = '↻ Actualizar';
+
+  } catch(e) {
+    console.error(e);
+    setStatus('⚠ ' + e.message + (e.message.includes('429') ? ' — Espera 1 min y reintenta.' : ''), 'error');
+  }
+
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>
